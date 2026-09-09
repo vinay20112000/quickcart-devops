@@ -1,39 +1,55 @@
 const express = require("express");
 const os = require("os");
 
-const router = express.Router();
+const pool = require("../config/db");
 
-const {
-  products,
-  users,
-  orders
-} = require("../data/store");
+const router = express.Router();
 
 
 // --------------------------------------------------
 // HEALTH
 // --------------------------------------------------
 
-router.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "UP",
-    service: "quickcart-api",
-    timestamp: new Date().toISOString()
-  });
+router.get("/health", async (req, res) => {
+
+  try {
+
+    await pool.query("SELECT 1");
+
+    res.status(200).json({
+      status: "UP",
+      service: "quickcart-api",
+      database: "UP",
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+
+    res.status(503).json({
+      status: "DEGRADED",
+      service: "quickcart-api",
+      database: "DOWN",
+      timestamp: new Date().toISOString()
+    });
+
+  }
+
 });
 
 
 // --------------------------------------------------
-// CONTAINER / HOST IDENTIFICATION
+// CONTAINER / HOST INFORMATION
 // --------------------------------------------------
 
 router.get("/container", (req, res) => {
+
   res.json({
     hostname: os.hostname(),
     pid: process.pid,
     platform: process.platform,
     nodeVersion: process.version
   });
+
 });
 
 
@@ -41,26 +57,80 @@ router.get("/container", (req, res) => {
 // PRODUCTS
 // --------------------------------------------------
 
-router.get("/products", (req, res) => {
-  res.json(products);
+router.get("/products", async (req, res) => {
+
+  try {
+
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        name,
+        description,
+        price,
+        old_price AS oldPrice,
+        stock,
+        flash_sale AS flashSale
+      FROM products
+      WHERE active = TRUE
+      ORDER BY id
+    `);
+
+    res.json(rows);
+
+  } catch (error) {
+
+    console.error(
+      "Products query failed:",
+      error.message
+    );
+
+    res.status(500).json({
+      error: "Unable to retrieve products"
+    });
+
+  }
+
 });
 
 
-router.get("/products/:id", (req, res) => {
+router.get("/products/:id", async (req, res) => {
 
-  const id = Number(req.params.id);
+  try {
 
-  const product = products.find(
-    product => product.id === id
-  );
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        name,
+        description,
+        price,
+        old_price AS oldPrice,
+        stock,
+        flash_sale AS flashSale
+      FROM products
+      WHERE id = ?
+        AND active = TRUE
+    `, [
+      Number(req.params.id)
+    ]);
 
-  if (!product) {
-    return res.status(404).json({
-      error: "Product not found"
+    if (rows.length === 0) {
+
+      return res.status(404).json({
+        error: "Product not found"
+      });
+
+    }
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Unable to retrieve product"
     });
+
   }
 
-  res.json(product);
 });
 
 
@@ -68,7 +138,7 @@ router.get("/products/:id", (req, res) => {
 // REGISTER
 // --------------------------------------------------
 
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
 
   const {
     name,
@@ -77,39 +147,62 @@ router.post("/register", (req, res) => {
   } = req.body;
 
   if (!name || !email || !password) {
+
     return res.status(400).json({
-      error: "Name, email and password are required"
+      error:
+        "Name, email and password are required"
     });
+
   }
 
-  const existingUser = users.find(
-    user => user.email === email
-  );
+  try {
 
-  if (existingUser) {
-    return res.status(409).json({
-      error: "User already exists"
+    const [result] = await pool.query(`
+      INSERT INTO users (
+        name,
+        email,
+        password,
+        role
+      )
+      VALUES (?, ?, ?, 'customer')
+    `, [
+      name,
+      email,
+      password
+    ]);
+
+    res.status(201).json({
+      message:
+        "User registered successfully",
+
+      user: {
+        id: result.insertId,
+        name,
+        email
+      }
     });
-  }
 
-  const newUser = {
-    id: users.length + 1,
-    name,
-    email,
-    password,
-    role: "customer"
-  };
+  } catch (error) {
 
-  users.push(newUser);
+    if (error.code === "ER_DUP_ENTRY") {
 
-  res.status(201).json({
-    message: "User registered successfully",
-    user: {
-      id: newUser.id,
-      name: newUser.name,
-      email: newUser.email
+      return res.status(409).json({
+        error: "User already exists"
+      });
+
     }
-  });
+
+    console.error(
+      "Registration failed:",
+      error.message
+    );
+
+    res.status(500).json({
+      error: "Registration failed"
+    });
+
+  }
+
 });
 
 
@@ -117,34 +210,51 @@ router.post("/register", (req, res) => {
 // LOGIN
 // --------------------------------------------------
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
 
   const {
     email,
     password
   } = req.body;
 
-  const user = users.find(
-    user =>
-      user.email === email &&
-      user.password === password
-  );
+  try {
 
-  if (!user) {
-    return res.status(401).json({
-      error: "Invalid credentials"
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        name,
+        email,
+        role
+      FROM users
+      WHERE email = ?
+        AND password = ?
+      LIMIT 1
+    `, [
+      email,
+      password
+    ]);
+
+    if (rows.length === 0) {
+
+      return res.status(401).json({
+        error: "Invalid credentials"
+      });
+
+    }
+
+    res.json({
+      message: "Login successful",
+      user: rows[0]
     });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Login failed"
+    });
+
   }
 
-  res.json({
-    message: "Login successful",
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    }
-  });
 });
 
 
@@ -152,86 +262,332 @@ router.post("/login", (req, res) => {
 // CREATE ORDER
 // --------------------------------------------------
 
-router.post("/orders", (req, res) => {
+router.post("/orders", async (req, res) => {
 
   const {
     customerName,
+    userId,
     items
   } = req.body;
 
-  if (!items || !Array.isArray(items) || items.length === 0) {
+  if (
+    !Array.isArray(items) ||
+    items.length === 0
+  ) {
+
     return res.status(400).json({
-      error: "Order must contain at least one item"
+      error:
+        "Order must contain at least one item"
     });
+
   }
 
-  let total = 0;
+  const connection =
+    await pool.getConnection();
 
-  for (const item of items) {
+  try {
 
-    const product = products.find(
-      p => p.id === item.id
-    );
+    await connection.beginTransaction();
 
-    if (!product) {
-      return res.status(400).json({
-        error: `Product ${item.id} does not exist`
+    let total = 0;
+
+    const orderItems = [];
+
+    for (const item of items) {
+
+      const quantity =
+        Number(item.quantity || 1);
+
+      if (quantity <= 0) {
+
+        throw new Error(
+          "Invalid quantity"
+        );
+
+      }
+
+      const [products] =
+        await connection.query(`
+          SELECT
+            id,
+            name,
+            price,
+            stock
+          FROM products
+          WHERE id = ?
+            AND active = TRUE
+          FOR UPDATE
+        `, [
+          Number(item.id)
+        ]);
+
+      if (products.length === 0) {
+
+        const error =
+          new Error(
+            `Product ${item.id} does not exist`
+          );
+
+        error.statusCode = 400;
+
+        throw error;
+      }
+
+      const product =
+        products[0];
+
+      if (product.stock < quantity) {
+
+        const error =
+          new Error(
+            `Insufficient stock for ${product.name}`
+          );
+
+        error.statusCode = 409;
+
+        throw error;
+      }
+
+      const price =
+        Number(product.price);
+
+      const subtotal =
+        price * quantity;
+
+      total += subtotal;
+
+      orderItems.push({
+        productId: product.id,
+        quantity,
+        price,
+        subtotal
       });
+
+      await connection.query(`
+        UPDATE products
+        SET stock = stock - ?
+        WHERE id = ?
+      `, [
+        quantity,
+        product.id
+      ]);
+
     }
 
-    const quantity = item.quantity || 1;
 
-    total += product.price * quantity;
+    const [orderResult] =
+      await connection.query(`
+        INSERT INTO orders (
+          user_id,
+          customer_name,
+          total_amount,
+          status
+        )
+        VALUES (?, ?, ?, 'PLACED')
+      `, [
+        userId || null,
+        customerName || "Guest",
+        total
+      ]);
+
+
+    const orderId =
+      orderResult.insertId;
+
+
+    for (const item of orderItems) {
+
+      await connection.query(`
+        INSERT INTO order_items (
+          order_id,
+          product_id,
+          quantity,
+          unit_price,
+          subtotal
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `, [
+        orderId,
+        item.productId,
+        item.quantity,
+        item.price,
+        item.subtotal
+      ]);
+
+    }
+
+
+    await connection.commit();
+
+
+    res.status(201).json({
+      id: orderId,
+      customerName:
+        customerName || "Guest",
+      total,
+      status: "PLACED",
+      items: orderItems,
+      createdAt:
+        new Date().toISOString()
+    });
+
+
+  } catch (error) {
+
+    await connection.rollback();
+
+    console.error(
+      "Order creation failed:",
+      error.message
+    );
+
+    res.status(
+      error.statusCode || 500
+    ).json({
+      error:
+        error.message ||
+        "Order creation failed"
+    });
+
+  } finally {
+
+    connection.release();
+
   }
 
-  const order = {
-    id: orders.length + 1001,
-    customerName: customerName || "Guest",
-    items,
-    total,
-    status: "PLACED",
-    createdAt: new Date().toISOString()
-  };
-
-  orders.unshift(order);
-
-  res.status(201).json(order);
 });
 
 
 // --------------------------------------------------
-// LIST ORDERS
+// ORDERS
 // --------------------------------------------------
 
-router.get("/orders", (req, res) => {
-  res.json(orders);
+router.get("/orders", async (req, res) => {
+
+  try {
+
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        user_id AS userId,
+        customer_name AS customerName,
+        total_amount AS total,
+        status,
+        created_at AS createdAt
+      FROM orders
+      ORDER BY created_at DESC
+    `);
+
+    res.json(rows);
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Unable to retrieve orders"
+    });
+
+  }
+
 });
 
 
 // --------------------------------------------------
-// ADMIN
+// ADMIN USERS
 // --------------------------------------------------
 
-router.get("/admin/users", (req, res) => {
+router.get("/admin/users", async (req, res) => {
 
-  const safeUsers = users.map(user => ({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role
-  }));
+  try {
 
-  res.json(safeUsers);
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        name,
+        email,
+        role,
+        created_at AS createdAt
+      FROM users
+      ORDER BY id
+    `);
+
+    res.json(rows);
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Unable to retrieve users"
+    });
+
+  }
+
 });
 
 
-router.get("/admin/orders", (req, res) => {
-  res.json(orders);
+// --------------------------------------------------
+// ADMIN ORDERS
+// --------------------------------------------------
+
+router.get("/admin/orders", async (req, res) => {
+
+  try {
+
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        user_id AS userId,
+        customer_name AS customerName,
+        total_amount AS total,
+        status,
+        created_at AS createdAt
+      FROM orders
+      ORDER BY created_at DESC
+    `);
+
+    res.json(rows);
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Unable to retrieve orders"
+    });
+
+  }
+
 });
 
 
-router.get("/admin/products", (req, res) => {
-  res.json(products);
+// --------------------------------------------------
+// ADMIN PRODUCTS
+// --------------------------------------------------
+
+router.get("/admin/products", async (req, res) => {
+
+  try {
+
+    const [rows] = await pool.query(`
+      SELECT
+        id,
+        name,
+        description,
+        price,
+        old_price AS oldPrice,
+        stock,
+        flash_sale AS flashSale,
+        active
+      FROM products
+      ORDER BY id
+    `);
+
+    res.json(rows);
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Unable to retrieve products"
+    });
+
+  }
+
 });
 
 

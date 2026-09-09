@@ -1,0 +1,20 @@
+# Node dependencies
+node_modules/
+
+# Environment secrets
+.env
+app/.env
+
+# Logs
+*.log
+logs/
+
+# Operating system
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
