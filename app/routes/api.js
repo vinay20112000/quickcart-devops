@@ -20,6 +20,7 @@ router.get("/health", async (req, res) => {
       status: "UP",
       service: "quickcart-api",
       database: "UP",
+      container: process.env.HOSTNAME,
       timestamp: new Date().toISOString()
     });
 
