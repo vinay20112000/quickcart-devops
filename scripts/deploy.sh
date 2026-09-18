@@ -16,33 +16,46 @@ cd "$APP_DIR"
 
 
 echo
-echo "Pulling latest code..."
-
-git pull origin main
-
-
-echo
 echo "Starting application..."
 
-docker compose up -d
-
+docker compose -p quickcart up -d
 
 echo
 echo "Current containers..."
 
-docker compose ps
-
-
-echo
-echo "Waiting for application startup..."
-
-sleep 10
-
+docker compose -p quickcart ps
 
 echo
-echo "Checking application health..."
+echo "Waiting for application health..."
 
-curl http://localhost/api/health
+
+for i in {1..12}
+do
+
+    HEALTH=$(curl -s http://localhost/api/health)
+
+    echo "$HEALTH"
+
+
+    if echo "$HEALTH" | grep -q '"database":"UP"'
+    then
+        echo "Application is healthy"
+        break
+    fi
+
+
+    echo "Database not ready. Waiting..."
+
+    sleep 10
+
+done
+
+
+if ! echo "$HEALTH" | grep -q '"database":"UP"'
+then
+    echo "Deployment failed. Application health check failed."
+    exit 1
+fi
 
 
 echo
