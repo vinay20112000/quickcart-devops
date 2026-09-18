@@ -1,6 +1,7 @@
 services:
   nginx:
-    image: nginx:latest
+    build:
+      context: ./nginx
     ports:
       - "80:80"
     volumes:
