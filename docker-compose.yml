@@ -1,7 +1,6 @@
 services:
   nginx:
     image: nginx:latest
-    container_name: quickcart-nginx
     ports:
       - "80:80"
     volumes:
@@ -37,7 +36,8 @@ services:
       DB_CONNECTION_LIMIT: 10
 
     depends_on:
-      - quickcart-mysql
+      quickcart-mysql:
+        condition: service_healthy
 
     networks:
       - quickcart-network
@@ -47,7 +47,23 @@ services:
 
   quickcart-mysql:
     image: mysql:8.0
-    container_name: quickcart-mysql
+
+    healthcheck:
+    test:
+      [
+        "CMD",
+        "mysqladmin",
+        "ping",
+        "-h",
+        "localhost",
+        "-u",
+        "root",
+        "-prootpassword"
+      ]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: quickcart
