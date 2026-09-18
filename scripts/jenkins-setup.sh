@@ -50,6 +50,11 @@ fi
 echo "Docker GID:"
 echo "$DOCKER_GID"
 
+export DOCKER_GID
+
+echo "Creating Jenkins environment file..."
+
+echo "DOCKER_GID=$DOCKER_GID" > "$JENKINS_DIR/.env"
 
 echo
 echo "Starting Jenkins..."
@@ -64,11 +69,20 @@ echo "Jenkins container status..."
 
 docker compose ps
 
-
 echo
 echo "Waiting for Jenkins startup..."
 
-sleep 20
+for i in {1..12}
+do
+    if docker exec quickcart-jenkins docker ps &> /dev/null
+    then
+        echo "Jenkins Docker access is ready"
+        break
+    fi
+
+    echo "Waiting..."
+    sleep 10
+done
 
 
 echo

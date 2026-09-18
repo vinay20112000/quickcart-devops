@@ -1,14 +1,21 @@
 services:
 
   jenkins:
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
     image: quickcart-jenkins:lts-docker
+
     container_name: quickcart-jenkins
+
+    group_add:
+      - "${DOCKER_GID}"
 
     ports:
       - "8080:8080"
       - "50000:50000"
-    group_add:
-      - "993"
 
     volumes:
       - jenkins-data:/var/jenkins_home
