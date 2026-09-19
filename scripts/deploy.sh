@@ -32,8 +32,7 @@ echo "Waiting for application health..."
 for i in {1..12}
 do
 
-    HEALTH=$(curl -s http://localhost/api/health)
-
+    HEALTH=$(curl -s http://nginx/api/health)
     echo "$HEALTH"
 
 

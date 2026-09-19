@@ -81,6 +81,7 @@ services:
 
 networks:
   quickcart-network:
+    name: quickcart-network
     driver: bridge
 
 volumes:
